@@ -41,75 +41,71 @@ const initDB = () => {
     });
 };
 
-const saveMedia = async (mediaData) => {
+const saveMedia = async (mediaData, onProgress) => {
     if (CONFIG.provider === 'supabase') {
         if (!supabaseClient) throw new Error("Supabase client belum terinisialisasi.");
 
-        // mediaData memiliki: { id, name, type, file, size, timestamp }
-        // Kita upload file-nya ke Supabase Storage terlebih dahulu
         const fileExt = mediaData.name.split('.').pop();
-        // Beri nama unik di storage menggunakan id agar aman dari bentrokan nama
         const storagePath = `${mediaData.id}.${fileExt}`;
 
-        let lastError = null;
-        const maxRetries = 3;
-
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                // 1. Upload ke Storage
-                const { data: uploadData, error: uploadError } = await supabaseClient.storage
-                    .from(BUCKET_NAME)
-                    .upload(storagePath, mediaData.file, {
-                        contentType: mediaData.file.type,
-                        upsert: false
-                    });
-
-                if (uploadError) {
-                    throw uploadError;
-                }
-
-                // 2. Dapatkan Public URL
-                const { data: publicUrlData } = supabaseClient.storage
-                    .from(BUCKET_NAME)
-                    .getPublicUrl(storagePath);
-
-                const publicUrl = publicUrlData.publicUrl;
-
-                // 3. Simpan metadata ke tabel 'media'
-                const { error: insertError } = await supabaseClient
-                    .from('media')
-                    .insert({
-                        id: mediaData.id,
-                        name: mediaData.name,
-                        type: mediaData.type,
-                        data: publicUrl, // Di galeri, data digunakan langsung sebagai src
-                        size: mediaData.size,
-                        timestamp: mediaData.timestamp,
-                        storage_path: storagePath
-                    });
-
-                if (insertError) {
-                    // Rollback upload jika insert data gagal
-                    await supabaseClient.storage.from(BUCKET_NAME).remove([storagePath]);
-                    throw insertError;
-                }
-
-                return mediaData.id; // Sukses, langsung keluar dari fungsi
-            } catch (error) {
-                lastError = error;
-                console.warn(`[Supabase Upload] Percobaan ke-${attempt} gagal. Mencoba kembali...`, error);
-                
-                // Jika masih ada sisa percobaan, tunggu delay sebelum mencoba kembali
-                if (attempt < maxRetries) {
-                    // Tunggu delay (2 detik, 4 detik, dst.)
-                    await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
-                }
-            }
+        // Mulai animasi progress indeterminate
+        let progressInterval = null;
+        if (onProgress) {
+            let fakePercent = 0;
+            onProgress(1);
+            progressInterval = setInterval(() => {
+                // Naik cepat di awal, melambat mendekati 90%
+                const step = fakePercent < 40 ? 3 : fakePercent < 70 ? 1.5 : 0.4;
+                fakePercent = Math.min(fakePercent + step, 90);
+                onProgress(Math.round(fakePercent));
+            }, 400);
         }
 
-        // Jika semua percobaan gagal, lempar error terakhir
-        console.error("Error upload file ke Supabase Storage setelah retry:", lastError);
-        throw lastError;
+        try {
+            // 1. Upload ke Supabase Storage via SDK (mendukung sb_publishable_ key)
+            const { error: uploadError } = await supabaseClient.storage
+                .from(BUCKET_NAME)
+                .upload(storagePath, mediaData.file, {
+                    contentType: mediaData.file.type,
+                    upsert: false
+                });
+
+            if (uploadError) throw uploadError;
+
+            // 2. Dapatkan Public URL
+            const { data: publicUrlData } = supabaseClient.storage
+                .from(BUCKET_NAME)
+                .getPublicUrl(storagePath);
+
+            const publicUrl = publicUrlData.publicUrl;
+
+            // 3. Simpan metadata ke tabel 'media'
+            const { error: insertError } = await supabaseClient
+                .from('media')
+                .insert({
+                    id: mediaData.id,
+                    name: mediaData.name,
+                    type: mediaData.type,
+                    data: publicUrl,
+                    size: mediaData.size,
+                    timestamp: mediaData.timestamp,
+                    storage_path: storagePath
+                });
+
+            if (insertError) {
+                // Rollback: hapus file yang sudah terupload jika gagal simpan metadata
+                await supabaseClient.storage.from(BUCKET_NAME).remove([storagePath]);
+                throw insertError;
+            }
+
+            if (onProgress) onProgress(100);
+            return mediaData.id;
+
+        } finally {
+            // Pastikan interval animasi selalu dibersihkan
+            if (progressInterval) clearInterval(progressInterval);
+        }
+
     } else {
         // Logika IndexedDB (Local)
         const db = await initDB();
@@ -117,7 +113,6 @@ const saveMedia = async (mediaData) => {
             const transaction = db.transaction([STORE_NAME], 'readwrite');
             const store = transaction.objectStore(STORE_NAME);
             
-            // Kita hapus object file agar tidak disimpan di IndexedDB (IndexedDB hanya butuh base64 'data')
             const itemToSave = { ...mediaData };
             delete itemToSave.file;
 
@@ -127,6 +122,7 @@ const saveMedia = async (mediaData) => {
         });
     }
 };
+
 
 const getAllMedia = async () => {
     if (CONFIG.provider === 'supabase') {
