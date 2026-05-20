@@ -33,6 +33,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const galleryGrid = document.getElementById('galleryGrid');
     const emptyState = document.getElementById('emptyState');
     
+    // Filter State & Buttons
+    const filterButtons = document.querySelectorAll('.filter-btn');
+    let currentFilter = 'all';
+
+    filterButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            filterButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentFilter = btn.getAttribute('data-filter');
+            loadGallery();
+        });
+    });
+
+    // Sort State & Element
+    const sortSelect = document.getElementById('sortSelect');
+    let currentSort = 'newest';
+
+    sortSelect.addEventListener('change', (e) => {
+        currentSort = e.target.value;
+        loadGallery();
+    });
+
     // Upload Status Elements
     const uploadStatus = document.getElementById('uploadStatus');
     const statusText = document.getElementById('statusText');
@@ -99,11 +121,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 let type = file.type.startsWith('video/') ? 'video' : 'image';
 
                 if (type === 'image') {
-                    // Kompresi Gambar menggunakan browser-image-compression
+                    // Kompresi Gambar menggunakan browser-image-compression (kualitas dioptimalkan tetap tajam)
                     const options = {
                         maxSizeMB: CONFIG.maxImageSizeMB,
-                        maxWidthOrHeight: 1920,
-                        useWebWorker: true
+                        maxWidthOrHeight: 2560, // Resolusi tinggi 2K
+                        useWebWorker: true,
+                        initialQuality: 0.85 // Sweet-spot kompresi vs kualitas (85% tajam)
                     };
                     processedFile = await imageCompression(file, options);
                 } else {
@@ -155,18 +178,73 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function updateStorageIndicator(mediaItems) {
+        const totalBytes = mediaItems.reduce((acc, item) => acc + (item.size || 0), 0);
+        const totalMB = totalBytes / (1024 * 1024);
+        
+        // Batas kapasitas total: jika supabase = 1024MB (1GB), jika local = 500MB
+        const maxMB = CONFIG.provider === 'supabase' ? 1024 : 500;
+        const percentage = Math.min((totalMB / maxMB) * 100, 100);
+        
+        const storageFill = document.getElementById('storageFill');
+        const storageText = document.getElementById('storageText');
+        
+        if (storageFill && storageText) {
+            storageFill.style.width = `${percentage}%`;
+            storageText.innerText = `${totalMB.toFixed(1)} MB / ${maxMB} MB`;
+            
+            // Ubah warna bar jika penyimpanan hampir penuh
+            if (percentage > 90) {
+                storageFill.style.background = 'linear-gradient(90deg, #ef4444, #f97316)'; // Merah/Oranye
+            } else if (percentage > 70) {
+                storageFill.style.background = 'linear-gradient(90deg, #f59e0b, #ef4444)'; // Kuning/Merah
+            } else {
+                storageFill.style.background = 'linear-gradient(90deg, #10b981, #3b82f6)'; // Hijau/Biru
+            }
+        }
+    }
+
     async function loadGallery() {
         const media = await getAllMedia();
+        updateStorageIndicator(media);
+        
+        // Filter media sesuai tab aktif (all, image, video)
+        const filteredMedia = currentFilter === 'all' 
+            ? media 
+            : media.filter(item => item.type === currentFilter);
+
+        // Sortir media (terbaru / terlama) berdasarkan timestamp
+        if (currentSort === 'newest') {
+            filteredMedia.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        } else {
+            filteredMedia.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        }
+
         galleryGrid.innerHTML = '';
         
-        if (media.length === 0) {
+        if (filteredMedia.length === 0) {
             emptyState.classList.remove('hidden');
             galleryGrid.classList.add('hidden');
+            
+            // Kustomisasi teks empty state
+            const emptyTitle = document.querySelector('#emptyState h2');
+            const emptyText = document.querySelector('#emptyState p');
+            if (media.length === 0) {
+                emptyTitle.innerText = "Kosong co";
+                emptyText.innerText = "Masukin doksli cia njime.";
+            } else {
+                emptyTitle.innerText = "Tidak ditemukan";
+                if (currentFilter === 'image') {
+                    emptyText.innerText = "Tidak ada doksli foto di sini.";
+                } else {
+                    emptyText.innerText = "Tidak ada doksli video di sini.";
+                }
+            }
         } else {
             emptyState.classList.add('hidden');
             galleryGrid.classList.remove('hidden');
             
-            media.forEach(item => {
+            filteredMedia.forEach(item => {
                 const card = document.createElement('div');
                 card.className = 'media-card';
                 card.onclick = () => openLightbox(item);
@@ -180,8 +258,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const sizeMB = (item.size / (1024 * 1024)).toFixed(2);
                 
+                // Format tanggal upload
+                const uploadDate = item.timestamp ? new Date(item.timestamp).toLocaleDateString('id-ID', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric'
+                }) : 'Tidak ada tanggal';
+                
+                // Badge penanda Foto / Video
+                const badgeHTML = item.type === 'video'
+                    ? `<span class="media-badge badge-video"><i class="fa-solid fa-video"></i> Video</span>`
+                    : `<span class="media-badge badge-image"><i class="fa-solid fa-image"></i> Foto</span>`;
+                
                 card.innerHTML = `
                     ${mediaElement}
+                    ${badgeHTML}
                     <div class="media-overlay">
                         <div class="media-actions">
                             <button class="btn-icon" onclick="event.stopPropagation(); downloadItem('${item.data}', '${item.name}')">
@@ -193,7 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         <div class="media-info">
                             ${item.name}
-                            <span>${sizeMB} MB</span>
+                            <span>${sizeMB} MB • ${uploadDate}</span>
                         </div>
                     </div>
                 `;
@@ -238,7 +329,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function openLightbox(item) {
         lightbox.classList.remove('hidden');
-        lightboxCaption.innerText = item.name;
+        
+        const sizeMB = (item.size / (1024 * 1024)).toFixed(2);
+        const uploadDate = item.timestamp ? new Date(item.timestamp).toLocaleDateString('id-ID', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric'
+        }) : 'Tidak ada tanggal';
+        
+        lightboxCaption.innerHTML = `${item.name} <span class="lightbox-meta">${sizeMB} MB • ${uploadDate}</span>`;
 
         if (item.type === 'video') {
             lightboxImg.classList.add('hidden');

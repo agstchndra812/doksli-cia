@@ -51,47 +51,65 @@ const saveMedia = async (mediaData) => {
         // Beri nama unik di storage menggunakan id agar aman dari bentrokan nama
         const storagePath = `${mediaData.id}.${fileExt}`;
 
-        // 1. Upload ke Storage
-        const { data: uploadData, error: uploadError } = await supabaseClient.storage
-            .from(BUCKET_NAME)
-            .upload(storagePath, mediaData.file, {
-                contentType: mediaData.file.type,
-                upsert: false
-            });
+        let lastError = null;
+        const maxRetries = 3;
 
-        if (uploadError) {
-            console.error("Error upload file ke Supabase Storage:", uploadError);
-            throw uploadError;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                // 1. Upload ke Storage
+                const { data: uploadData, error: uploadError } = await supabaseClient.storage
+                    .from(BUCKET_NAME)
+                    .upload(storagePath, mediaData.file, {
+                        contentType: mediaData.file.type,
+                        upsert: false
+                    });
+
+                if (uploadError) {
+                    throw uploadError;
+                }
+
+                // 2. Dapatkan Public URL
+                const { data: publicUrlData } = supabaseClient.storage
+                    .from(BUCKET_NAME)
+                    .getPublicUrl(storagePath);
+
+                const publicUrl = publicUrlData.publicUrl;
+
+                // 3. Simpan metadata ke tabel 'media'
+                const { error: insertError } = await supabaseClient
+                    .from('media')
+                    .insert({
+                        id: mediaData.id,
+                        name: mediaData.name,
+                        type: mediaData.type,
+                        data: publicUrl, // Di galeri, data digunakan langsung sebagai src
+                        size: mediaData.size,
+                        timestamp: mediaData.timestamp,
+                        storage_path: storagePath
+                    });
+
+                if (insertError) {
+                    // Rollback upload jika insert data gagal
+                    await supabaseClient.storage.from(BUCKET_NAME).remove([storagePath]);
+                    throw insertError;
+                }
+
+                return mediaData.id; // Sukses, langsung keluar dari fungsi
+            } catch (error) {
+                lastError = error;
+                console.warn(`[Supabase Upload] Percobaan ke-${attempt} gagal. Mencoba kembali...`, error);
+                
+                // Jika masih ada sisa percobaan, tunggu delay sebelum mencoba kembali
+                if (attempt < maxRetries) {
+                    // Tunggu delay (2 detik, 4 detik, dst.)
+                    await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+                }
+            }
         }
 
-        // 2. Dapatkan Public URL
-        const { data: publicUrlData } = supabaseClient.storage
-            .from(BUCKET_NAME)
-            .getPublicUrl(storagePath);
-
-        const publicUrl = publicUrlData.publicUrl;
-
-        // 3. Simpan metadata ke tabel 'media'
-        const { error: insertError } = await supabaseClient
-            .from('media')
-            .insert({
-                id: mediaData.id,
-                name: mediaData.name,
-                type: mediaData.type,
-                data: publicUrl, // Di galeri, data digunakan langsung sebagai src
-                size: mediaData.size,
-                timestamp: mediaData.timestamp,
-                storage_path: storagePath
-            });
-
-        if (insertError) {
-            // Rollback upload jika insert data gagal
-            await supabaseClient.storage.from(BUCKET_NAME).remove([storagePath]);
-            console.error("Error simpan metadata ke database:", insertError);
-            throw insertError;
-        }
-
-        return mediaData.id;
+        // Jika semua percobaan gagal, lempar error terakhir
+        console.error("Error upload file ke Supabase Storage setelah retry:", lastError);
+        throw lastError;
     } else {
         // Logika IndexedDB (Local)
         const db = await initDB();

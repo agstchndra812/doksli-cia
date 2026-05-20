@@ -20,13 +20,40 @@
 <body>
     <header class="glass-header">
         <div class="header-container">
-            <h1>Doksli</h1>
+            <div class="header-brand">
+                <div class="header-title-area">
+                    <h1>Doksli</h1>
+                    <span class="header-credit">by <a href="https://github.com/agstchndra812" target="_blank" rel="noopener noreferrer">agstchndra812</a></span>
+                </div>
+                <div class="storage-wrapper" id="storageWrapper">
+                    <div class="storage-bar">
+                        <div class="storage-fill" id="storageFill"></div>
+                    </div>
+                    <span class="storage-text" id="storageText">Memuat penyimpanan...</span>
+                </div>
+            </div>
             <button id="uploadBtn" class="btn-primary"><i class="fa-solid fa-cloud-arrow-up"></i> <span>Upload
                     Wok</span></button>
         </div>
     </header>
 
     <main class="container">
+        <!-- Toolbar (Filter & Sort) -->
+        <div class="gallery-toolbar">
+            <div class="filter-container">
+                <button class="filter-btn active" data-filter="all">Semua</button>
+                <button class="filter-btn" data-filter="image"><i class="fa-solid fa-image"></i> Foto</button>
+                <button class="filter-btn" data-filter="video"><i class="fa-solid fa-video"></i> Video</button>
+            </div>
+            
+            <div class="sort-container">
+                <select id="sortSelect" class="glass-select">
+                    <option value="newest">📅 Terbaru</option>
+                    <option value="oldest">⏳ Terlama</option>
+                </select>
+            </div>
+        </div>
+
         <div id="emptyState" class="empty-state hidden">
             <i class="fa-solid fa-images"></i>
             <h2>Kosong co</h2>

@@ -9,5 +9,5 @@ const CONFIG = {
     supabaseKey: "sb_publishable_4aVLWoYLVbfIgaS8uz8_zQ_FW6yRStQ",
 
     maxImageSizeMB: 2, // Ukuran maksimal gambar setelah kompresi
-    maxVideoSizeMB: 50, // Batas upload video
+    maxVideoSizeMB: 500, // Batas upload video ditingkatkan menjadi 500MB
 };
