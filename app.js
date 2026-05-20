@@ -113,57 +113,46 @@ document.addEventListener('DOMContentLoaded', () => {
         
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            const fileLabel = `(${i + 1}/${files.length}) ${file.name}`;
+            const percent = Math.round((i / files.length) * 100);
+            updateProgress(`Memproses ${file.name}...`, percent);
 
             try {
                 let processedFile = file;
                 let type = file.type.startsWith('video/') ? 'video' : 'image';
 
                 if (type === 'image') {
-                    updateProgress(`Mengompresi ${fileLabel}...`, 5);
+                    // Kompresi Gambar menggunakan browser-image-compression (kualitas dioptimalkan tetap tajam)
                     const options = {
                         maxSizeMB: CONFIG.maxImageSizeMB,
-                        maxWidthOrHeight: 2560,
+                        maxWidthOrHeight: 2560, // Resolusi tinggi 2K
                         useWebWorker: true,
-                        initialQuality: 0.85
+                        initialQuality: 0.85 // Sweet-spot kompresi vs kualitas (85% tajam)
                     };
                     processedFile = await imageCompression(file, options);
                 } else {
+                    // Video: Validasi ukuran dan simpan langsung
                     if (file.size / 1024 / 1024 > CONFIG.maxVideoSizeMB) {
                         alert(`Video ${file.name} terlalu besar. Maks ${CONFIG.maxVideoSizeMB}MB.`);
                         continue;
                     }
-                    // Tampilkan perkiraan waktu tunggu untuk video besar
-                    const fileSizeMB = Math.round(file.size / 1024 / 1024);
-                    updateProgress(`Menyiapkan video ${fileLabel} (${fileSizeMB} MB)...`, 2);
                 }
 
+                // Simpan ke database (IndexedDB atau Supabase)
                 const mediaItem = {
                     id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
                     name: file.name,
                     type: type,
-                    file: processedFile,
-                    data: CONFIG.provider === 'local' ? await fileToBase64(processedFile) : null,
+                    file: processedFile, // Dibutuhkan oleh Supabase
+                    data: CONFIG.provider === 'local' ? await fileToBase64(processedFile) : null, // Hanya isi base64 jika lokal
                     size: processedFile.size,
                     timestamp: Date.now()
                 };
 
-                // Callback progress: update progress bar saat XHR upload berlangsung
-                const onProgress = (percent) => {
-                    if (percent === 0) {
-                        updateProgress(`Mencoba kembali upload ${fileLabel}...`, 0);
-                    } else {
-                        updateProgress(`Mengunggah ${fileLabel}... ${percent}%`, percent);
-                    }
-                };
-
-                await saveMedia(mediaItem, CONFIG.provider === 'supabase' ? onProgress : null);
+                await saveMedia(mediaItem);
 
             } catch (error) {
                 console.error("Error processing file:", error);
-                // Tampilkan pesan error yang lebih ramah & informatif
-                const msg = error.message || 'Terjadi kesalahan tidak diketahui.';
-                alert(`Gagal mengunggah "${file.name}".\n\nAlasan: ${msg}\n\nPastikan koneksi internet Anda stabil dan coba lagi.`);
+                alert(`Gagal memproses ${file.name}`);
             }
         }
 
@@ -269,17 +258,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const sizeMB = (item.size / (1024 * 1024)).toFixed(2);
                 
-                // Format tanggal & jam upload
+                // Format tanggal upload
                 const uploadDate = item.timestamp ? new Date(item.timestamp).toLocaleDateString('id-ID', {
                     day: 'numeric',
                     month: 'short',
                     year: 'numeric'
                 }) : 'Tidak ada tanggal';
-                const uploadTime = item.timestamp ? new Date(item.timestamp).toLocaleTimeString('id-ID', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }) : '';
                 
                 // Badge penanda Foto / Video
                 const badgeHTML = item.type === 'video'
@@ -300,7 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         <div class="media-info">
                             ${item.name}
-                            <span>${sizeMB} MB • ${uploadDate}${uploadTime ? ', ' + uploadTime : ''}</span>
+                            <span>${sizeMB} MB • ${uploadDate}</span>
                         </div>
                     </div>
                 `;
@@ -352,13 +336,8 @@ document.addEventListener('DOMContentLoaded', () => {
             month: 'long',
             year: 'numeric'
         }) : 'Tidak ada tanggal';
-        const uploadTime = item.timestamp ? new Date(item.timestamp).toLocaleTimeString('id-ID', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-        }) : '';
         
-        lightboxCaption.innerHTML = `${item.name} <span class="lightbox-meta">${sizeMB} MB • ${uploadDate}${uploadTime ? ', ' + uploadTime : ''}</span>`;
+        lightboxCaption.innerHTML = `${item.name} <span class="lightbox-meta">${sizeMB} MB • ${uploadDate}</span>`;
 
         if (item.type === 'video') {
             lightboxImg.classList.add('hidden');
