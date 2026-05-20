@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doksli Asli</title>
+    <meta name="description"
+        content="Aplikasi galeri berbasis website yang ringan, cepat, dan mudah digunakan dengan fitur kompresi bawaan.">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Browser Image Compression -->
+    <script type="text/javascript"
+        src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>😹</text></svg>">
+</head>
+
+<body>
+    <header class="glass-header">
+        <div class="header-container">
+            <h1>Doksli</h1>
+            <button id="uploadBtn" class="btn-primary"><i class="fa-solid fa-cloud-arrow-up"></i> <span>Upload
+                    Wok</span></button>
+        </div>
+    </header>
+
+    <main class="container">
+        <div id="emptyState" class="empty-state hidden">
+            <i class="fa-solid fa-images"></i>
+            <h2>Kosong co</h2>
+            <p>Masukin doksli cia njime.</p>
+        </div>
+        <div id="galleryGrid" class="gallery-grid">
+            <!-- Media items will be injected here -->
+        </div>
+    </main>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h2>Upload Doksli</h2>
+                <button id="closeModalBtn" class="btn-close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="upload-area" id="dropZone">
+                    <i class="fa-solid fa-file-arrow-up"></i>
+                    <p>Tarik & Lepas file di sini atau klik untuk memilih</p>
+                    <input type="file" id="fileInput" accept="image/jpeg, image/png, image/webp, video/mp4, video/webm"
+                        multiple class="hidden-input">
+                </div>
+                <div id="uploadStatus" class="upload-status hidden">
+                    <p id="statusText">Mengompresi...</p>
+                    <div class="progress-bar">
+                        <div id="progressFill" class="progress-fill"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lightbox Modal -->
+    <div id="lightbox" class="lightbox hidden">
+        <button id="closeLightboxBtn" class="btn-close-lightbox"><i class="fa-solid fa-xmark"></i></button>
+        <div class="lightbox-content">
+            <img id="lightboxImg" src="" alt="Preview" class="hidden">
+            <video id="lightboxVideo" controls class="hidden"></video>
+        </div>
+        <div class="lightbox-caption" id="lightboxCaption"></div>
+    </div>
+
+    <!-- Login Overlay -->
+    <div id="loginOverlay" class="login-overlay">
+        <div class="login-panel glass-panel">
+            <h2><i class="fa-solid fa-lock"></i> Masukkan Password</h2>
+            <p>Hanya member yang tawu.</p>
+            <div class="login-form">
+                <input type="password" id="passwordInput" placeholder="Password" class="glass-input">
+                <button id="loginBtn" class="btn-primary">Cihuy</button>
+            </div>
+            <p id="loginError" class="login-error hidden">Password salah!</p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <script src="db.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
