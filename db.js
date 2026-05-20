@@ -41,32 +41,20 @@ const initDB = () => {
     });
 };
 
-const saveMedia = async (mediaData) => {
+const saveMedia = async (mediaData, onProgress) => {
     if (CONFIG.provider === 'supabase') {
         if (!supabaseClient) throw new Error("Supabase client belum terinisialisasi.");
 
-        // mediaData memiliki: { id, name, type, file, size, timestamp }
-        // Kita upload file-nya ke Supabase Storage terlebih dahulu
         const fileExt = mediaData.name.split('.').pop();
-        // Beri nama unik di storage menggunakan id agar aman dari bentrokan nama
         const storagePath = `${mediaData.id}.${fileExt}`;
 
-        let lastError = null;
         const maxRetries = 3;
+        let lastError = null;
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                // 1. Upload ke Storage
-                const { data: uploadData, error: uploadError } = await supabaseClient.storage
-                    .from(BUCKET_NAME)
-                    .upload(storagePath, mediaData.file, {
-                        contentType: mediaData.file.type,
-                        upsert: false
-                    });
-
-                if (uploadError) {
-                    throw uploadError;
-                }
+                // Upload menggunakan XHR agar mendukung progress real-time & timeout dinamis
+                await uploadViaXHR(mediaData.file, storagePath, onProgress);
 
                 // 2. Dapatkan Public URL
                 const { data: publicUrlData } = supabaseClient.storage
@@ -82,34 +70,32 @@ const saveMedia = async (mediaData) => {
                         id: mediaData.id,
                         name: mediaData.name,
                         type: mediaData.type,
-                        data: publicUrl, // Di galeri, data digunakan langsung sebagai src
+                        data: publicUrl,
                         size: mediaData.size,
                         timestamp: mediaData.timestamp,
                         storage_path: storagePath
                     });
 
                 if (insertError) {
-                    // Rollback upload jika insert data gagal
                     await supabaseClient.storage.from(BUCKET_NAME).remove([storagePath]);
                     throw insertError;
                 }
 
-                return mediaData.id; // Sukses, langsung keluar dari fungsi
+                return mediaData.id;
             } catch (error) {
                 lastError = error;
-                console.warn(`[Supabase Upload] Percobaan ke-${attempt} gagal. Mencoba kembali...`, error);
-                
-                // Jika masih ada sisa percobaan, tunggu delay sebelum mencoba kembali
+                console.warn(`[Upload] Percobaan ke-${attempt} gagal. Mencoba kembali...`, error);
                 if (attempt < maxRetries) {
-                    // Tunggu delay (2 detik, 4 detik, dst.)
-                    await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+                    // Reset progress ke 0 sebelum retry
+                    if (onProgress) onProgress(0);
+                    await new Promise(resolve => setTimeout(resolve, 3000 * attempt));
                 }
             }
         }
 
-        // Jika semua percobaan gagal, lempar error terakhir
-        console.error("Error upload file ke Supabase Storage setelah retry:", lastError);
+        console.error("Upload gagal setelah semua percobaan:", lastError);
         throw lastError;
+
     } else {
         // Logika IndexedDB (Local)
         const db = await initDB();
@@ -117,7 +103,6 @@ const saveMedia = async (mediaData) => {
             const transaction = db.transaction([STORE_NAME], 'readwrite');
             const store = transaction.objectStore(STORE_NAME);
             
-            // Kita hapus object file agar tidak disimpan di IndexedDB (IndexedDB hanya butuh base64 'data')
             const itemToSave = { ...mediaData };
             delete itemToSave.file;
 
@@ -127,6 +112,58 @@ const saveMedia = async (mediaData) => {
         });
     }
 };
+
+// Upload file via XHR langsung ke Supabase Storage API
+// Mendukung progress real-time dan timeout dinamis sesuai ukuran file
+function uploadViaXHR(file, storagePath, onProgress) {
+    return new Promise((resolve, reject) => {
+        const url = `${CONFIG.supabaseUrl}/storage/v1/object/${BUCKET_NAME}/${storagePath}`;
+        
+        // Timeout tetap 30 menit — cukup untuk file besar apapun di koneksi lambat sekalipun
+        const timeoutMs = 30 * 60 * 1000; // 30 menit
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.timeout = timeoutMs;
+
+        // Header autentikasi Supabase
+        xhr.setRequestHeader('Authorization', `Bearer ${CONFIG.supabaseKey}`);
+        xhr.setRequestHeader('x-upsert', 'false');
+        // Content-Type dihandle otomatis oleh browser saat pakai FormData/Blob
+
+        // Progress tracking real-time
+        xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable && onProgress) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                onProgress(percent);
+            }
+        });
+
+        xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                resolve(JSON.parse(xhr.responseText));
+            } else {
+                reject(new Error(`Upload gagal: ${xhr.status} ${xhr.responseText}`));
+            }
+        });
+
+        xhr.addEventListener('timeout', () => {
+            reject(new Error('Upload timeout setelah 30 menit. Koneksi terlalu lambat atau file terlalu besar. Coba lagi.'));
+        });
+
+        xhr.addEventListener('error', () => {
+            reject(new Error('Koneksi terputus saat upload. Periksa internet Anda.'));
+        });
+
+        xhr.addEventListener('abort', () => {
+            reject(new Error('Upload dibatalkan.'));
+        });
+
+        // Kirim file langsung sebagai binary (lebih efisien daripada FormData untuk file besar)
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.send(file);
+    });
+}
 
 const getAllMedia = async () => {
     if (CONFIG.provider === 'supabase') {
